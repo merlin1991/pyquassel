@@ -37,7 +37,7 @@ class QuasselClientProtocol(asyncio.Protocol):
         
     def connection_made(self, transport):
         log = logging.getLogger(__name__)
-        log.info('connection made')
+        log.info('Connection made')
         self.transport = transport
         
         probe_data = bytearray()
@@ -74,18 +74,18 @@ class QuasselClientProtocol(asyncio.Protocol):
     
     def connection_lost(self, exc):
         log = logging.getLogger(__name__)
-        log.warning('connection lost')
+        log.warning('Connection lost')
         self.loop.stop()
         
     def handle_probe_response(self, data):
         log = logging.getLogger(__name__)
         probe_response = Quint32.decode(data)
         self.proto_type = probe_response & 0xFF
-        log.debug('protocol type: {0}'.format(quassel.PROTOCOLS[self.proto_type]))
+        log.info('protocol type: {0}'.format(quassel.PROTOCOLS[self.proto_type]))
         self.proto_features = probe_response>>8 & 0xFFFF
-        log.debug('protocol features: {0}'.format(repr(self.proto_features)))
+        log.info('protocol features: {0}'.format(repr(self.proto_features)))
         self.connection_features = probe_response >> 24
-        log.debug('connection features: {0}'.format(', '.join([quassel.FEATURES[i] for i in quassel.FEATURES if self.connection_features & i])))
+        log.info('connection features: {0}'.format(', '.join([quassel.FEATURES[i] for i in quassel.FEATURES if self.connection_features & i])))
         self._probing = False
         self.register_client()
         
@@ -121,13 +121,13 @@ class QuasselClientProtocol(asyncio.Protocol):
         
         if not self._handshake:            
             message_data = self.data_destreamify(list_data)
-            log.info(repr(message_data))
+            log.debug(repr(message_data))
         
             msg_type = message_data['MsgType']
             if msg_type == 'ClientInitAck':
                 self.handle_client_init_ack(message_data)
             elif msg_type == 'ClientLoginAck':
-                pass
+                log.info('Password accepted')
             elif msg_type == 'ClientLoginReject':
                 pass
             elif msg_type == 'SessionInit':

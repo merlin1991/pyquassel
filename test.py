@@ -4,7 +4,7 @@ import logging
 import quassel
 
 l = logging.getLogger()
-l.setLevel(logging.DEBUG)
+l.setLevel(logging.INFO)
 l.addHandler(logging.StreamHandler())
 
 loop = asyncio.get_event_loop()
