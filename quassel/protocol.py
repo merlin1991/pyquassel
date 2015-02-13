@@ -1,6 +1,8 @@
 import asyncio
+import asyncio.sslproto
 import io
 import logging
+import ssl
 import zlib
 
 import quassel
@@ -64,12 +66,20 @@ class QuasselClientProtocol(asyncio.Protocol):
         self.transport = transport
 
         probe_data = bytearray()
-        probe_data.extend(Quint32(quassel.MAGIC | quassel.FEATURE_COMPRESSION).encode()) # to enable encryption: | quassel.FEATURE_ENCRYPTION
+        probe_data.extend(Quint32(quassel.MAGIC | quassel.FEATURE_COMPRESSION | quassel.FEATURE_ENCRYPTION).encode())
         probe_data.extend(Quint32(quassel.DATASTREAMPROTOCOL | quassel.DATASTREAMFEATURES | quassel.LIST_END).encode())
         transport.write(probe_data)
 
     def data_received(self, data):
         log = logging.getLogger(__name__)
+        if self.connection_features & quassel.FEATURE_ENCRYPTION:
+            ssl_data, data = self._sslPipe.feed_ssldata(data)
+            data = b''.join(data)
+            self.transport.write(b''.join(ssl_data))
+
+        if len(data) == 0:  #in ssl handshake no application data is transmitted
+            return
+
         if self.connection_features & quassel.FEATURE_COMPRESSION:
             data = self._inflater.decompress(data)
         log.debug('data received: {0}'.format(repr(data)))
@@ -126,12 +136,28 @@ class QuasselClientProtocol(asyncio.Protocol):
         self.proto_features = probe_response >> 8 & 0xFFFF
         log.info('protocol features: {0}'.format(repr(self.proto_features)))
         self.connection_features = probe_response >> 24
+        log.info('connection features: {0}'.format(', '.join([quassel.FEATURES[i] for i in quassel.FEATURES if self.connection_features & i])))
+
         if self.connection_features & quassel.FEATURE_COMPRESSION:
             self._deflater = zlib.compressobj(level=9)
             self._inflater = zlib.decompressobj()
-        log.info('connection features: {0}'.format(', '.join([quassel.FEATURES[i] for i in quassel.FEATURES if self.connection_features & i])))
+
+        if self.connection_features & quassel.FEATURE_ENCRYPTION:
+            context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+            context.options |= ssl.OP_NO_SSLv2
+            context.options |= ssl.OP_NO_SSLv3
+            self._sslPipe = asyncio.sslproto._SSLPipe(context, False)
+            def callback(err):
+                if err == None:
+                    print('we have handshake')
+                    self.register_client()
+                else:
+                    print('handshake failed')
+            self.transport.write(b''.join(self._sslPipe.do_handshake(callback)))
+        else:
+            self.register_client()
+
         self._probing = False
-        self.register_client()
 
     def data_streamify(self, message):
         data = []
@@ -151,13 +177,24 @@ class QuasselClientProtocol(asyncio.Protocol):
         return data
 
     def send_data(self, data, flush=False):
-        if self.connection_features & quassel.FEATURE_COMPRESSION:
-            self.transport.write(self._deflater.compress(data))
-            if flush:
-                self.transport.write(self._deflater.flush(zlib.Z_PARTIAL_FLUSH))
+        if self.connection_features & quassel.FEATURE_ENCRYPTION:
+            if self.connection_features & quassel.FEATURE_COMPRESSION:
+                compressed_data = self._deflater.compress(data)
+                compressed_data += self._deflater.flush(zlib.Z_PARTIAL_FLUSH)
+                
+                ssl_data, offset = self._sslPipe.feed_appdata(compressed_data)
+                self.transport.write(b''.join(ssl_data))
+            else:
+                ssl_data, offset = self._sslPipe.feed_appdata(compressed_data)
+                self.transport.write(b''.join(ssl_data))
         else:
-            self.transport.write(data)
-        
+            if self.connection_features & quassel.FEATURE_COMPRESSION:
+                self.transport.write(self._deflater.compress(data))
+                if flush:
+                    self.transport.write(self._deflater.flush(zlib.Z_PARTIAL_FLUSH))
+            else:
+                self.transport.write(data)
+
     def send_message(self, message):
         data = QVariantList([QVariant(x) for x in message]).encode()
         self.send_data(Quint32(len(data)).encode())     #Message length
