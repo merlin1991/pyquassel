@@ -1,10 +1,14 @@
 import asyncio
 import io
 import logging
+import zlib
 
 import quassel
 import qtdatastream
 from qtdatastream import register_user_type, Quint8, Qint16, Qint32, Quint32, QByteArray, QDateTime, QVariant, QVariantMap, QVariantList
+
+if not hasattr(zlib, 'Z_PARTIAL_FLUSH'):
+    zlib.Z_PARTIAL_FLUSH = 0x1
 
 class BufferInfo(qtdatastream.QtType):
     def __init__(self, data):
@@ -39,6 +43,7 @@ class Message(qtdatastream.QtType):
 
 class QuasselClientProtocol(asyncio.Protocol):
     def __init__(self, loop, user, password):
+        self.connection_features = 0x0
         self.loop = loop
         self.user = user
         self.password = password
@@ -59,12 +64,14 @@ class QuasselClientProtocol(asyncio.Protocol):
         self.transport = transport
 
         probe_data = bytearray()
-        probe_data.extend(Quint32(quassel.MAGIC).encode()) # to enable encryption and compression: | quassel.FEATURE_ENCRYPTION | quassel.FEATURE_COMPRESSION
+        probe_data.extend(Quint32(quassel.MAGIC | quassel.FEATURE_COMPRESSION).encode()) # to enable encryption: | quassel.FEATURE_ENCRYPTION
         probe_data.extend(Quint32(quassel.DATASTREAMPROTOCOL | quassel.DATASTREAMFEATURES | quassel.LIST_END).encode())
         transport.write(probe_data)
 
     def data_received(self, data):
         log = logging.getLogger(__name__)
+        if self.connection_features & quassel.FEATURE_COMPRESSION:
+            data = self._inflater.decompress(data)
         log.debug('data received: {0}'.format(repr(data)))
         if self._probing:
             self.handle_probe_response(data)
@@ -119,6 +126,9 @@ class QuasselClientProtocol(asyncio.Protocol):
         self.proto_features = probe_response >> 8 & 0xFFFF
         log.info('protocol features: {0}'.format(repr(self.proto_features)))
         self.connection_features = probe_response >> 24
+        if self.connection_features & quassel.FEATURE_COMPRESSION:
+            self._deflater = zlib.compressobj(level=9)
+            self._inflater = zlib.decompressobj()
         log.info('connection features: {0}'.format(', '.join([quassel.FEATURES[i] for i in quassel.FEATURES if self.connection_features & i])))
         self._probing = False
         self.register_client()
@@ -140,15 +150,23 @@ class QuasselClientProtocol(asyncio.Protocol):
 
         return data
 
+    def send_data(self, data, flush=False):
+        if self.connection_features & quassel.FEATURE_COMPRESSION:
+            self.transport.write(self._deflater.compress(data))
+            if flush:
+                self.transport.write(self._deflater.flush(zlib.Z_PARTIAL_FLUSH))
+        else:
+            self.transport.write(data)
+        
     def send_message(self, message):
         data = QVariantList([QVariant(x) for x in message]).encode()
-        self.transport.write(Quint32(len(data)).encode())   #Message length
-        self.transport.write(data)                          #Message data
+        self.send_data(Quint32(len(data)).encode())     #Message length
+        self.send_data(data, True)                      #Message data
 
     def send_legacy_message(self, message):
         data = self.data_streamify(message)
-        self.transport.write(Quint32(len(data)).encode())   #Message length
-        self.transport.write(data)                          #Message data
+        self.send_data(Quint32(len(data)).encode()) #Message length
+        self.send_data(data, True)                  #Message data
 
     def register_client(self):
         message = { 'MsgType' : 'ClientInit', 'ClientVersion': 'v0.11.0 (unknown revision)', 'ClientDate': 'Jan 11 2015 15:41:00' }
