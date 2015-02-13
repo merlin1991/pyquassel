@@ -104,7 +104,7 @@ class QByteArray(QtType):
     def decode(data):
         length = Quint32.decode(data)
         if length == 0xFFFFFFFF:
-            return b''
+            return None
 
         return data.read(length)
 
@@ -113,7 +113,7 @@ class QString(QtType):
         self.data = data
 
     def encode(self):
-        if len(self.data) == 0:
+        if self.data == None:
             return struct.pack('!I', 0xFFFFFFFF)
 
         data = bytearray()
@@ -126,7 +126,7 @@ class QString(QtType):
     def decode(data):
         length = Quint32.decode(data.read(4))
         if length == 0xFFFFFFFF:
-            return ''
+            return None
 
         string = data.read(length).decode('utf-16-be')
         return string

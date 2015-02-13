@@ -50,6 +50,7 @@ class QuasselClientProtocol(asyncio.Protocol):
         register_user_type('Identity', QVariantMap)
         register_user_type('IdentityId', Qint32)
         register_user_type('BufferInfo', BufferInfo)
+        register_user_type('BufferId', Qint32)
         register_user_type('Message', Message)
 
     def connection_made(self, transport):
@@ -204,7 +205,9 @@ class QuasselClientProtocol(asyncio.Protocol):
                 return
 
             class_name = message[1]
-            object_name = message[2].decode('utf-8')
+            object_name = message[2]
+            if object_name != None:
+                object_name = object_name.decode('utf-8')
             function_name = message[3]
             params = message[4:]
 
