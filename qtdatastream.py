@@ -275,8 +275,7 @@ class QVariant(QtType):
         elif type == QVARIANTLIST:
             return QVariantList.decode(data)
         elif type == QBYTEARRAY:
-            length = Quint32.decode(data)
-            return data.read(length)
+            return QByteArray.decode(data)
         elif type == QDATE:
             return QDate.decode(data)
         elif type == QTIME:
