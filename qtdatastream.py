@@ -145,17 +145,25 @@ class QStringList(QtType):
         return list
 
 class QDate(QtType):
+    '''
+    Math from The Calendar FAQ at http://www.tondering.dk/claus/cal/julperiod.php
+    The formulas are correct for all julian days, when using mathematical integer
+    division (round to negative infinity), not c++11 integer division (round to zero)
+    '''
     def __init__(self, data):
         self.data = data
+
+    def encode(self):
+        a = (14 - self.data.month) // 12
+        y = self.data.year + 4800 - a
+        m = self.data.month + 12 * a - 3
+
+        julian_day = self.data.day + (153 * m +2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+        return Quint32(julian_day).encode()
 
     @staticmethod
     def decode(data):
         julian_day = Quint32.decode(data)
-        '''
-        Math from The Calendar FAQ at http://www.tondering.dk/claus/cal/julperiod.php
-        This formula is correct for all julian days, when using mathematical integer
-        division (round to negative infinity), not c++11 integer division (round to zero)
-        '''
         a = julian_day + 32044
         b = (4 * a + 3) // 146097
         c = a - (146097 * b) // 4
@@ -173,6 +181,14 @@ class QTime(QtType):
     def __init__(self, data):
         self.data = data
 
+    def encode(self):
+        milliseconds = self.data.hour * 60 * 60 * 1000 + \
+                        self.data.minute * 60 * 1000 + \
+                        self.data.second * 1000 + \
+                        self.data.microsecond // 1000
+
+        return Quint32(milliseconds).encode()
+
     @staticmethod
     def decode(data):
         milliseconds = Quint32.decode(data)
@@ -185,6 +201,13 @@ class QTime(QtType):
 class QDateTime(QtType):
     def __init__(self, data):
         self.data = data
+
+    def encode(self):
+        data = bytearray()
+        data.extend(QDate(self.data.date()).encode())
+        data.extend(QTime(self.data.time()).encode())
+        data.append(1)
+        return data
 
     @staticmethod
     def decode(data):
@@ -214,6 +237,14 @@ class QVariant(QtType):
             data.extend(Quint32(QSTRING).encode())  #QVariant type
             data.extend(Qint8(0).encode())          #null flag
             data.extend(QString(self.data).encode())
+        elif isinstance(self.data, Qint16):
+            data.extend(Quint32(QINT).encode())  #QVariant type
+            data.extend(Qint8(0).encode())         #null flag
+            data.extend(Qint32(self.data.data).encode())
+        elif isinstance(self.data, QDateTime):
+            data.extend(Quint32(QDATETIME).encode())    #QVariant type
+            data.extend(Qint8(0).encode())              #null flag
+            data.extend(self.data.encode())
         elif isinstance(self.data, bytes):
             data.extend(Quint32(QBYTEARRAY).encode())   #QVariant type
             data.extend(Qint8(0).encode())              #null flag

@@ -4,7 +4,7 @@ import logging
 
 import quassel
 import qtdatastream
-from qtdatastream import register_user_type, Quint8, Qint16, Qint32, Quint32, QByteArray, QVariant, QVariantMap, QVariantList
+from qtdatastream import register_user_type, Quint8, Qint16, Qint32, Quint32, QByteArray, QDateTime, QVariant, QVariantMap, QVariantList
 
 class BufferInfo(qtdatastream.QtType):
     def __init__(self, data):
@@ -140,13 +140,18 @@ class QuasselClientProtocol(asyncio.Protocol):
         return data
 
     def send_message(self, message):
+        data = QVariantList([QVariant(x) for x in message]).encode()
+        self.transport.write(Quint32(len(data)).encode())   #Message length
+        self.transport.write(data)                          #Message data
+
+    def send_legacy_message(self, message):
         data = self.data_streamify(message)
         self.transport.write(Quint32(len(data)).encode())   #Message length
         self.transport.write(data)                          #Message data
 
     def register_client(self):
         message = { 'MsgType' : 'ClientInit', 'ClientVersion': 'v0.11.0 (unknown revision)', 'ClientDate': 'Jan 11 2015 15:41:00' }
-        self.send_message(message)
+        self.send_legacy_message(message)
 
     def handle_message(self, raw_message_stream):
         log = logging.getLogger(__name__)
@@ -177,7 +182,7 @@ class QuasselClientProtocol(asyncio.Protocol):
         else:
             log.info('Sending login data')
             message = { 'MsgType' : 'ClientLogin', 'User' : self.user, 'Password' : self.password }
-            self.send_message(message)
+            self.send_legacy_message(message)
 
     def handle_session_init(self, data):
         self._handshake = True
@@ -235,7 +240,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             if len(message) != 2:
                 log.error('invalid heart beat')
 
-            #handle heart beat!
+            self.send_message([Qint16(6), QDateTime(message[1])])
 
         elif message_type == 6:
             log.debug('heart beat reply')
