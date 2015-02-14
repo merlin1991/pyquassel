@@ -1,6 +1,7 @@
 import asyncio
 import asyncio.sslproto
 import io
+import ipaddress
 import logging
 import ssl
 import zlib
@@ -65,8 +66,13 @@ class QuasselClientProtocol(asyncio.Protocol):
         log.info('Connection made')
         self.transport = transport
 
+        peer_address = ipaddress.ip_address(transport._extra['peername'][0])
+        request_features = quassel.MAGIC | quassel.FEATURE_COMPRESSION
+        if not peer_address.is_loopback:
+            request_features |= quassel.FEATURE_ENCRYPTION
+
         probe_data = bytearray()
-        probe_data.extend(Quint32(quassel.MAGIC | quassel.FEATURE_COMPRESSION | quassel.FEATURE_ENCRYPTION).encode())
+        probe_data.extend(Quint32(request_features).encode())
         probe_data.extend(Quint32(quassel.DATASTREAMPROTOCOL | quassel.DATASTREAMFEATURES | quassel.LIST_END).encode())
         transport.write(probe_data)
 
@@ -181,7 +187,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             if self.connection_features & quassel.FEATURE_COMPRESSION:
                 compressed_data = self._deflater.compress(data)
                 compressed_data += self._deflater.flush(zlib.Z_PARTIAL_FLUSH)
-                
+
                 ssl_data, offset = self._sslPipe.feed_appdata(compressed_data)
                 self.transport.write(b''.join(ssl_data))
             else:
