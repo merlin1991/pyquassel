@@ -54,12 +54,18 @@ class QuasselClientProtocol(asyncio.Protocol):
         self._handshake = False
         self._buffer = io.BytesIO()
 
-        register_user_type('NetworkId', Qint32)
+        register_user_type('Message', Message)
+        register_user_type('BufferInfo', BufferInfo)
+        register_user_type('NetworkInfo', QVariantMap)
+        register_user_type('Network::Server', QVariantMap)
         register_user_type('Identity', QVariantMap)
         register_user_type('IdentityId', Qint32)
-        register_user_type('BufferInfo', BufferInfo)
         register_user_type('BufferId', Qint32)
-        register_user_type('Message', Message)
+        register_user_type('NetworkId', Qint32)
+        register_user_type('UserId', Qint32)
+        register_user_type('AccountId', Qint32)
+        register_user_type('MsgId', Qint32)
+        #QVariant?
 
     def connection_made(self, transport):
         log = logging.getLogger(__name__)
