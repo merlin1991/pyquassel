@@ -209,6 +209,9 @@ class QDate(QtType):
     @staticmethod
     def decode(data):
         julian_day = Quint32.decode(data)
+
+        if julian_day == 0: #QDate::nullJd
+            return None
         a = julian_day + 32044
         b = (4 * a + 3) // 146097
         c = a - (146097 * b) // 4
@@ -242,7 +245,7 @@ class QTime(QtType):
     def decode(data):
         milliseconds = Quint32.decode(data)
         if milliseconds == 0xFFFFFFFF:
-            return datetime.time(0, 0, 0, 0)
+            None
 
         seconds, milliseconds = divmod(milliseconds, 1000)
         minutes, seconds = divmod(seconds, 60)
@@ -265,9 +268,10 @@ class QDateTime(QtType):
     def decode(data):
         date = QDate.decode(data)
         time = QTime.decode(data)
-
         is_utc = Quint8.decode(data.read(1)) #TODO handle?
 
+        if date == None || time == None:
+            return None
         return datetime.datetime.combine(date, time)
 
 class QVariant(QtType):
@@ -368,7 +372,7 @@ class QVariantList(QtType):
             if isinstance(value, QtType):
                 data.extend(value.encode())
             else:
-                raise EncodeException('{0} is not a qt type'.format(type(value).__name__)))
+                raise EncodeException('{0} is not a qt type'.format(type(value).__name__))
         return data
 
     @staticmethod
