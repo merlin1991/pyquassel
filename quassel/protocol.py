@@ -102,38 +102,47 @@ class QuasselClientProtocol(asyncio.Protocol):
             self.handle_data()
 
     def handle_data(self):
-            buffer_end = self._buffer.tell()
+        log = logging.getLogger(__name__)
+        buffer_end = self._buffer.tell()
 
-            if buffer_end >= 4:         #can we read message size?
-                self._buffer.seek(0)
-                message_length = Quint32.decode(self._buffer)
+        if buffer_end >= 4:         #can we read message size?
+            self._buffer.seek(0)
+            message_length = Quint32.decode(self._buffer)
 
-                if message_length > buffer_end + 4:
-                    self._buffer.seek(buffer_end)
-                else:                   #enough data for one message
+            if message_length > buffer_end + 4:
+                self._buffer.seek(buffer_end)
+            else:                   #enough data for one message
+                try:
                     self.handle_message(self._buffer)
+                except qtdatastream.DecodeException as e:
+                    self._buffer.seek(4 + message_length)
+                    log.error(e)
+
+                buffer_position = self._buffer.tell()
+                while buffer_end - buffer_position >= 4: #any trailing messages in the data?
+                    message_length = Quint32.decode(self._buffer)
+
+                    if message_length <= buffer_end - (buffer_position + 4):
+                        try:
+                            self.handle_message(self._buffer)
+                        except qtdatastream.DecodeException as e:
+                            self._buffer.seek(buffer_position + message_length)
+                            log.error(e)
+
+                    else:
+                        break
+
                     buffer_position = self._buffer.tell()
 
-                    while buffer_end - buffer_position >= 4: #any trailing messages in the data?
-                        message_length = Quint32.decode(self._buffer)
+                available_bytes = buffer_end - buffer_position
 
-                        if message_length <= buffer_end - (buffer_position + 4):
-                            self.handle_message(self._buffer)
-
-                        else:
-                            break
-
-                        buffer_position = self._buffer.tell()
-
-                    available_bytes = buffer_end - buffer_position
-
-                    if available_bytes > 0:
-                        self._buffer.seek(buffer_position)
-                        partial_message = self._buffer.read()
-                        self._buffer.seek(0)
-                        self._buffer.write(partial_message)
-                    elif available_bytes == 0:
-                        self._buffer.seek(0)
+                if available_bytes > 0:
+                    self._buffer.seek(buffer_position)
+                    partial_message = self._buffer.read()
+                    self._buffer.seek(0)
+                    self._buffer.write(partial_message)
+                elif available_bytes == 0:
+                    self._buffer.seek(0)
 
     def connection_lost(self, exc):
         log = logging.getLogger(__name__)
@@ -259,18 +268,18 @@ class QuasselClientProtocol(asyncio.Protocol):
         for identity in data['Identities']:
             self._identities[identity['identityId']] = { 'nicks' : identity['nicks'] }
         log.debug('Identities: {0}'.format(repr(self._identities)))
-        
+
         self._networks = {}
         for networkid in data['NetworkIds']:
             self._networks[networkid] = None
             self.send_message([Qint16(quassel.INIT_REQUEST), 'Network'.encode('utf-8'), str(networkid).encode('utf-8')])
         log.debug('Networks: {0}'.format(repr(self._networks)))
-        
+
         self._buffers = {}
         for buffer in data['BufferInfos']:
             self._buffers[buffer['bufferId']] = { 'name' : buffer['name'], 'network' : buffer['networkId'], 'type' : buffer['type'] }
         log.debug('Buffers: {0}'.format(repr(self._buffers)))
-            
+
 
     def handle_regular_message(self, message):
         log = logging.getLogger(__name__)

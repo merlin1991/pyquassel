@@ -30,6 +30,23 @@ QUINT16 = 133
 
 _user_types = {}
 
+class DataStreamException(Exception):
+    pass
+
+class DecodeException(DataStreamException):
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return repr(self.value)
+
+class EncodeException(DataStreamException):
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return repr(self.value)
+
 def register_user_type(name, type):
     global _user_types
     _user_types[name] = type
@@ -75,7 +92,7 @@ class Qint16(QtType):
         if isinstance(data, io.BytesIO):
             data = data.read(2)
         return struct.unpack('!h', data)[0]
-        
+
 class Quint16(QtType):
     def __init__(self, data):
         self.data = data
@@ -249,9 +266,7 @@ class QDateTime(QtType):
         date = QDate.decode(data)
         time = QTime.decode(data)
 
-        is_utc = Quint8.decode(data.read(1))
-        if is_utc != 1:
-            print('non utc date!') #Exception
+        is_utc = Quint8.decode(data.read(1)) #TODO handle?
 
         return datetime.datetime.combine(date, time)
 
@@ -286,7 +301,7 @@ class QVariant(QtType):
             data.extend(Quint32(len(self.data)).encode())   #QByteArray length
             data.extend(self.data)                          #QbyteArray data
         else:
-            print('invalid data type') #EXCEPTIONS!
+            raise EncodeException('invalid data type {0}'.format(type(self.data).__name__))
 
         return data
 
@@ -322,13 +337,11 @@ class QVariant(QtType):
             name = data.read(name_length)[:-1].decode('utf-8')
             if name in _user_types:
                 return _user_types[name].decode(data)
-
-            print('unknown user type {0}'.format(name))
+            raise DecodeException('unknown user type {0}'.format(name))
         elif type == QUINT16:
             return Quint16.decode(data)
-            
         else:
-            print('invalid data type {0} at position {1}'.format(type, data.tell() - 5)) #EXCEPTIONS
+            raise DecodeException('invalid data type {0} at position {1}'.format(type, data.tell() - 5))
 
 class QVariantMap(QtType):
     def __init__(self, data):
@@ -355,7 +368,7 @@ class QVariantList(QtType):
             if isinstance(value, QtType):
                 data.extend(value.encode())
             else:
-                print('not a qt type') #EXCEPTIONS!
+                raise EncodeException('{0} is not a qt type'.format(type(value).__name__)))
         return data
 
     @staticmethod
