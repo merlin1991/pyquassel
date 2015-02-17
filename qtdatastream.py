@@ -25,6 +25,9 @@ QDATETIME = 16
 
 QUSERTYPE = 127
 
+#found via debugging quassel
+QUINT16 = 133
+
 _user_types = {}
 
 def register_user_type(name, type):
@@ -72,6 +75,19 @@ class Qint16(QtType):
         if isinstance(data, io.BytesIO):
             data = data.read(2)
         return struct.unpack('!h', data)[0]
+        
+class Quint16(QtType):
+    def __init__(self, data):
+        self.data = data
+
+    def encode(self):
+        return struct.pack('!H', self.data)
+
+    @staticmethod
+    def decode(data):
+        if isinstance(data, io.BytesIO):
+            data = data.read(2)
+        return struct.unpack('!H', data)[0]
 
 class Qint32(QtType):
     def __init__(self, data):
@@ -100,6 +116,18 @@ class Quint32(QtType):
         return struct.unpack('!I', data)[0]
 
 class QByteArray(QtType):
+    def __init__(self, data):
+        self.data = data
+
+    def encode(self):
+        if self.data == None:
+            return struct.pack('!I', 0xFFFFFFFF)
+
+        data = bytearray()
+        data.extend(Quint32(len(self.data)).encode())
+        data.extend(self.data)
+        return data
+
     @staticmethod
     def decode(data):
         length = Quint32.decode(data)
@@ -175,6 +203,10 @@ class QDate(QtType):
         month = m + 3 - 12 * (m // 10)
         year = 100 * b + d - 4800 + m // 10
 
+        #python can only handle years >= 1
+        if year < 1:
+            return datetime.date(1,1,1)
+
         return datetime.date(year, month, day)
 
 class QTime(QtType):
@@ -192,6 +224,9 @@ class QTime(QtType):
     @staticmethod
     def decode(data):
         milliseconds = Quint32.decode(data)
+        if milliseconds == 0xFFFFFFFF:
+            return datetime.time(0, 0, 0, 0)
+
         seconds, milliseconds = divmod(milliseconds, 1000)
         minutes, seconds = divmod(seconds, 60)
         hours, minutes = divmod(minutes, 60)
@@ -215,7 +250,7 @@ class QDateTime(QtType):
         time = QTime.decode(data)
 
         is_utc = Quint8.decode(data.read(1))
-        if is_utc == 0:
+        if is_utc != 1:
             print('non utc date!') #Exception
 
         return datetime.datetime.combine(date, time)
@@ -289,9 +324,11 @@ class QVariant(QtType):
                 return _user_types[name].decode(data)
 
             print('unknown user type {0}'.format(name))
-
+        elif type == QUINT16:
+            return Quint16.decode(data)
+            
         else:
-            print('invalid data type {0}'.format(type)) #EXCEPTIONS
+            print('invalid data type {0} at position {1}'.format(type, data.tell() - 5)) #EXCEPTIONS
 
 class QVariantMap(QtType):
     def __init__(self, data):

@@ -237,7 +237,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             elif msg_type == 'ClientLoginReject':
                 pass
             elif msg_type == 'SessionInit':
-                self.handle_session_init(message_data)
+                self.handle_session_init(message_data['SessionState'])
             else:
                 log.warning('Unknown message type {0}'.format(msg_type))
         else:
@@ -253,7 +253,24 @@ class QuasselClientProtocol(asyncio.Protocol):
             self.send_legacy_message(message)
 
     def handle_session_init(self, data):
+        log = logging.getLogger(__name__)
         self._handshake = True
+        self._identities = {}
+        for identity in data['Identities']:
+            self._identities[identity['identityId']] = { 'nicks' : identity['nicks'] }
+        log.debug('Identities: {0}'.format(repr(self._identities)))
+        
+        self._networks = {}
+        for networkid in data['NetworkIds']:
+            self._networks[networkid] = None
+            self.send_message([Qint16(quassel.INIT_REQUEST), 'Network'.encode('utf-8'), str(networkid).encode('utf-8')])
+        log.debug('Networks: {0}'.format(repr(self._networks)))
+        
+        self._buffers = {}
+        for buffer in data['BufferInfos']:
+            self._buffers[buffer['bufferId']] = { 'name' : buffer['name'], 'network' : buffer['networkId'], 'type' : buffer['type'] }
+        log.debug('Buffers: {0}'.format(repr(self._buffers)))
+            
 
     def handle_regular_message(self, message):
         log = logging.getLogger(__name__)
@@ -265,7 +282,7 @@ class QuasselClientProtocol(asyncio.Protocol):
 
         message_type = message[0]
 
-        if message_type == 1:
+        if message_type == quassel.SYNC:
             log.debug('sync')
             if len(message) < 4:
                 log.error('invalid sync call')
@@ -280,7 +297,7 @@ class QuasselClientProtocol(asyncio.Protocol):
 
             #call object!
 
-        elif message_type == 2:
+        elif message_type == quassel.RPC:
             log.debug('rpc call')
             if len(message) == 1:
                 log.error('empty rpc call')
@@ -288,7 +305,7 @@ class QuasselClientProtocol(asyncio.Protocol):
 
             #handle rpc call
 
-        elif message_type == 3:
+        elif message_type == quassel.INIT_REQUEST:
             log.debug('init request')
             if len(message) != 3:
                 log.error('invalid init request')
@@ -296,7 +313,7 @@ class QuasselClientProtocol(asyncio.Protocol):
 
             #handle init request
 
-        elif message_type == 4:
+        elif message_type == quassel.INIT_DATA:
             log.debug('init data')
             if len(message) < 3:
                 log.error('invalid init data')
@@ -304,15 +321,15 @@ class QuasselClientProtocol(asyncio.Protocol):
 
             #handle init data
 
-        elif message_type == 5:
+        elif message_type == quassel.HEART_BEAT:
             log.debug('heart beat')
 
             if len(message) != 2:
                 log.error('invalid heart beat')
 
-            self.send_message([Qint16(6), QDateTime(message[1])])
+            self.send_message([Qint16(quassel.HEART_BEAT_REPLY), QDateTime(message[1])])
 
-        elif message_type == 6:
+        elif message_type == quassel.HEART_BEAT_REPLY:
             log.debug('heart beat reply')
 
             if len(message) != 2:

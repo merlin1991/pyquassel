@@ -12,4 +12,12 @@ PROTOCOLS = { DATASTREAMPROTOCOL : 'datastream' }
 
 LIST_END = 0x80000000
 
+#network message types
+SYNC = 0x1
+RPC = 0x2
+INIT_REQUEST = 0x3
+INIT_DATA = 0x4
+HEART_BEAT = 0x5
+HEART_BEAT_REPLY = 0x6
+
 from .protocol import QuasselClientProtocol
