@@ -245,7 +245,7 @@ class QTime(QtType):
     def decode(data):
         milliseconds = Quint32.decode(data)
         if milliseconds == 0xFFFFFFFF:
-            None
+            return None
 
         seconds, milliseconds = divmod(milliseconds, 1000)
         minutes, seconds = divmod(seconds, 60)
