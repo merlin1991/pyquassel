@@ -1,0 +1,8 @@
+pyquassel - an asyncio python implementation of the quassel <http://quassel-irc.org> protocol
+=============================================================================================
+
+pyquassel is still in early development
+
+Requirements:
+	python >= 3.5.0
+	quasselcore with protocol version >= 10
