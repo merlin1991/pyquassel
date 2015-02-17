@@ -270,7 +270,7 @@ class QDateTime(QtType):
         time = QTime.decode(data)
         is_utc = Quint8.decode(data.read(1)) #TODO handle?
 
-        if date == None || time == None:
+        if date == None or time == None:
             return None
         return datetime.datetime.combine(date, time)
 
