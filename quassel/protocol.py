@@ -8,11 +8,12 @@ import zlib
 
 import quassel
 import qtdatastream
-from qtdatastream import register_user_type, Quint8, Qint16, Qint32, Quint32, QByteArray, QDateTime, QVariant, QVariantMap, QVariantList
+from qtdatastream import register_user_type, Quint8, Qint16, Qint32, Quint32, QByteArray, QVariant, QVariantMap, QVariantList
 
 if not hasattr(zlib, 'Z_PARTIAL_FLUSH'):
     zlib.Z_PARTIAL_FLUSH = 0x1
 
+@register_user_type('BufferInfo')
 class BufferInfo(qtdatastream.QtType):
     def __init__(self, data):
         self.data = data
@@ -27,6 +28,7 @@ class BufferInfo(qtdatastream.QtType):
             'name' : QByteArray.decode(data).decode('utf-8')
         }
 
+@register_user_type('Message')
 class Message(qtdatastream.QtType):
     def __init__(self, data):
         self.data = data
@@ -54,17 +56,15 @@ class QuasselClientProtocol(asyncio.Protocol):
         self._handshake = False
         self._buffer = io.BytesIO()
 
-        register_user_type('Message', Message)
-        register_user_type('BufferInfo', BufferInfo)
-        register_user_type('NetworkInfo', QVariantMap)
-        register_user_type('Network::Server', QVariantMap)
-        register_user_type('Identity', QVariantMap)
-        register_user_type('IdentityId', Qint32)
-        register_user_type('BufferId', Qint32)
-        register_user_type('NetworkId', Qint32)
-        register_user_type('UserId', Qint32)
-        register_user_type('AccountId', Qint32)
-        register_user_type('MsgId', Qint32)
+        register_user_type('NetworkInfo')(qtdatastream.QVARIANTMAP)
+        register_user_type('Network::Server')(qtdatastream.QVARIANTMAP)
+        register_user_type('Identity')(qtdatastream.QVARIANTMAP)
+        register_user_type('IdentityId')(qtdatastream.QINT)
+        register_user_type('BufferId')(qtdatastream.QINT)
+        register_user_type('NetworkId')(qtdatastream.QINT)
+        register_user_type('UserId')(qtdatastream.QINT)
+        register_user_type('AccountId')(qtdatastream.QINT)
+        register_user_type('MsgId')(qtdatastream.QINT)
         #QVariant?
 
     def connection_made(self, transport):
@@ -89,7 +89,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             data = b''.join(data)
             self.transport.write(b''.join(ssl_data))
 
-        if len(data) == 0:  #in ssl handshake no application data is transmitted
+        if not data:  # in ssl handshake no application data is transmitted
             return
 
         if self.connection_features & quassel.FEATURE_COMPRESSION:
@@ -105,44 +105,44 @@ class QuasselClientProtocol(asyncio.Protocol):
         log = logging.getLogger(__name__)
         buffer_end = self._buffer.tell()
 
-        if buffer_end >= 4:         #can we read message size?
-            self._buffer.seek(0)
+        if buffer_end < 4:         #can we read message size?
+            return
+        self._buffer.seek(0)
+        message_length = Quint32.decode(self._buffer)
+
+        if message_length > buffer_end + 4:
+            self._buffer.seek(buffer_end)
+            return
+
+        try:
+            self.handle_message(self._buffer)
+        except qtdatastream.DecodeException as e:
+            self._buffer.seek(4 + message_length)
+            log.error(e)
+
+        buffer_position = self._buffer.tell()
+        while buffer_end - buffer_position >= 4: #any trailing messages in the data?
             message_length = Quint32.decode(self._buffer)
 
-            if message_length > buffer_end + 4:
-                self._buffer.seek(buffer_end)
-            else:                   #enough data for one message
+            if message_length <= buffer_end - (buffer_position + 4):
                 try:
                     self.handle_message(self._buffer)
                 except qtdatastream.DecodeException as e:
-                    self._buffer.seek(4 + message_length)
+                    self._buffer.seek(buffer_position + message_length)
                     log.error(e)
 
-                buffer_position = self._buffer.tell()
-                while buffer_end - buffer_position >= 4: #any trailing messages in the data?
-                    message_length = Quint32.decode(self._buffer)
+            else:
+                break
 
-                    if message_length <= buffer_end - (buffer_position + 4):
-                        try:
-                            self.handle_message(self._buffer)
-                        except qtdatastream.DecodeException as e:
-                            self._buffer.seek(buffer_position + message_length)
-                            log.error(e)
+            buffer_position = self._buffer.tell()
 
-                    else:
-                        break
+        available_bytes = buffer_end - buffer_position
 
-                    buffer_position = self._buffer.tell()
-
-                available_bytes = buffer_end - buffer_position
-
-                if available_bytes > 0:
-                    self._buffer.seek(buffer_position)
-                    partial_message = self._buffer.read()
-                    self._buffer.seek(0)
-                    self._buffer.write(partial_message)
-                elif available_bytes == 0:
-                    self._buffer.seek(0)
+        if available_bytes > 0:
+            self._buffer.seek(buffer_position)
+            self._buffer = io.BytesIO(self._buffer.read())
+        elif available_bytes == 0:
+            self._buffer.seek(0)
 
     def connection_lost(self, exc):
         log = logging.getLogger(__name__)
@@ -244,7 +244,8 @@ class QuasselClientProtocol(asyncio.Protocol):
             elif msg_type == 'ClientLoginAck':
                 log.info('Password accepted')
             elif msg_type == 'ClientLoginReject':
-                pass
+                log.error('Password rejected')
+                self.transport.close()
             elif msg_type == 'SessionInit':
                 self.handle_session_init(message_data['SessionState'])
             else:
@@ -336,7 +337,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             if len(message) != 2:
                 log.error('invalid heart beat')
 
-            self.send_message([Qint16(quassel.HEART_BEAT_REPLY), QDateTime(message[1])])
+            self.send_message([Qint16(quassel.HEART_BEAT_REPLY), message[1]])
 
         elif message_type == quassel.HEART_BEAT_REPLY:
             log.debug('heart beat reply')
