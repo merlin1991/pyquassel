@@ -1,11 +1,12 @@
-'''The qtdatastream module provides wrapper classes around the struct
+"""The qtdatastream module provides wrapper classes around the struct
 module to work with binary data according to DataStream version 8 (Qt_4_2)
 
 All helper classes implement a static decode function that decodes a
 python type out of a bytes object.
 
 In order to facilitate custom user types in QVariant all custom types must
-be registered via the register_user_type module function'''
+be registered via the register_user_type decorator
+"""
 
 import datetime
 import io
@@ -34,7 +35,14 @@ _qt_types = {}
 _user_types = {}
 _python_types = {}
 
-def register_mapping(qt_type, python_type = None):
+
+def register_mapping(qt_type, python_type=None):
+    """Registers a class as qt_type, optionally maps python type as well
+
+    This decorator registers a type as QtType qt_type for QVariant decoding,
+    it also sets the QT_TYPE class variable for encoding.
+    If a python_type is given then this python primitive is encoded using the class
+    """
     def decorator(cls):
         if python_type is not None:
             _python_types[python_type] = cls
@@ -43,13 +51,16 @@ def register_mapping(qt_type, python_type = None):
         return cls
     return decorator
 
+
 def register_user_type(name):
+    """Registers a class as Qt user type for QVariant decoding"""
     def decorator(cls):
         if cls not in _qt_types and not hasattr(cls, 'decode'):
             raise TypeError('class does not provide decode method')
         _user_types[name] = cls
         return cls
     return decorator
+
 
 class DataStreamException(Exception):
     pass
@@ -74,6 +85,7 @@ class EncodeException(DataStreamException):
 class QtType:
     pass
 
+
 @register_mapping(QUSERTYPE)
 class UserType(QtType):
     @staticmethod
@@ -88,6 +100,7 @@ class UserType(QtType):
 
         raise DecodeException('unknown user type {0}'.format(name))
 
+
 @register_mapping(QBOOL, bool)
 class QBool(QtType):
     def __init__(self, data):
@@ -99,7 +112,8 @@ class QBool(QtType):
     @staticmethod
     def decode(data):
         data = Quint8.decode(data)
-        return  data == 1
+        return data == 1
+
 
 @register_mapping(QINT8)
 class Qint8(QtType):
@@ -115,6 +129,7 @@ class Qint8(QtType):
             data = data.read(1)
         return struct.unpack('b', data)[0]
 
+
 @register_mapping(QUINT8)
 class Quint8(QtType):
     def __init__(self, data):
@@ -128,6 +143,7 @@ class Quint8(QtType):
         if isinstance(data, io.BytesIO):
             data = data.read(1)
         return struct.unpack('B', data)[0]
+
 
 @register_mapping(QINT16)
 class Qint16(QtType):
@@ -143,6 +159,7 @@ class Qint16(QtType):
             data = data.read(2)
         return struct.unpack('!h', data)[0]
 
+
 @register_mapping(QUINT16)
 class Quint16(QtType):
     def __init__(self, data):
@@ -156,6 +173,7 @@ class Quint16(QtType):
         if isinstance(data, io.BytesIO):
             data = data.read(2)
         return struct.unpack('!H', data)[0]
+
 
 @register_mapping(QINT)
 class Qint32(QtType):
@@ -171,6 +189,7 @@ class Qint32(QtType):
             data = data.read(4)
         return struct.unpack('!i', data)[0]
 
+
 @register_mapping(QUINT)
 class Quint32(QtType):
     def __init__(self, data):
@@ -185,13 +204,14 @@ class Quint32(QtType):
             data = data.read(4)
         return struct.unpack('!I', data)[0]
 
+
 @register_mapping(QBYTEARRAY, bytes)
 class QByteArray(QtType):
     def __init__(self, data):
         self.data = data
 
     def encode(self):
-        if self.data == None:
+        if self.data is None:
             return struct.pack('!I', 0xFFFFFFFF)
 
         data = bytearray()
@@ -207,19 +227,20 @@ class QByteArray(QtType):
 
         return data.read(length)
 
+
 @register_mapping(QSTRING, str)
 class QString(QtType):
     def __init__(self, data):
         self.data = data
 
     def encode(self):
-        if self.data == None:
+        if self.data is None:
             return struct.pack('!I', 0xFFFFFFFF)
 
         data = bytearray()
         array_data = self.data.encode('utf-16-be')
-        data.extend(Quint32(len(array_data)).encode())  #QString length
-        data.extend(array_data)                         #QString data
+        data.extend(Quint32(len(array_data)).encode())  # QString length
+        data.extend(array_data)                         # QString data
         return data
 
     @staticmethod
@@ -230,6 +251,7 @@ class QString(QtType):
 
         string = data.read(length).decode('utf-16-be')
         return string
+
 
 @register_mapping(QSTRINGLIST)
 class QStringList(QtType):
@@ -245,13 +267,15 @@ class QStringList(QtType):
 
         return list
 
+
 @register_mapping(QDATE, datetime.date)
 class QDate(QtType):
-    '''
-    Math from The Calendar FAQ at http://www.tondering.dk/claus/cal/julperiod.php
+    """QDate encapsulates a datetime.date as julian day
+    
+    Math taken from The Calendar FAQ at http://www.tondering.dk/claus/cal/julperiod.php
     The formulas are correct for all julian days, when using mathematical integer
     division (round to negative infinity), not c++11 integer division (round to zero)
-    '''
+    """
     def __init__(self, data):
         self.data = data
 
@@ -260,14 +284,14 @@ class QDate(QtType):
         y = self.data.year + 4800 - a
         m = self.data.month + 12 * a - 3
 
-        julian_day = self.data.day + (153 * m +2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+        julian_day = self.data.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
         return Quint32(julian_day).encode()
 
     @staticmethod
     def decode(data):
         julian_day = Quint32.decode(data)
 
-        if julian_day == 0: #QDate::nullJd
+        if julian_day == 0:     # QDate::nullJd
             return None
         a = julian_day + 32044
         b = (4 * a + 3) // 146097
@@ -276,18 +300,20 @@ class QDate(QtType):
         e = c - (1461 * d) // 4
         m = (5 * e + 1) // 153
 
-        day = e - (153 * m +2) // 5 + 1
+        day = e - (153 * m + 2) // 5 + 1
         month = m + 3 - 12 * (m // 10)
         year = 100 * b + d - 4800 + m // 10
 
-        #python can only handle years >= 1
+        # python can only handle years >= 1
         if year < 1:
-            return datetime.date(1,1,1)
+            return datetime.date(1, 1, 1)
 
         return datetime.date(year, month, day)
 
+
 @register_mapping(QTIME, datetime.time)
 class QTime(QtType):
+    """QTime encapsulates datetime.time as milliseconds since midnight"""
     def __init__(self, data):
         self.data = data
 
@@ -311,6 +337,7 @@ class QTime(QtType):
 
         return datetime.time(hours, minutes, seconds, milliseconds * 1000)
 
+
 @register_mapping(QDATETIME, datetime.datetime)
 class QDateTime(QtType):
     def __init__(self, data):
@@ -327,11 +354,12 @@ class QDateTime(QtType):
     def decode(data):
         date = QDate.decode(data)
         time = QTime.decode(data)
-        is_utc = Quint8.decode(data.read(1)) #TODO handle?
+        is_utc = Quint8.decode(data.read(1))    # TODO handle?
 
-        if date == None or time == None:
+        if date is None or time is None:
             return None
         return datetime.datetime.combine(date, time)
+
 
 class QVariant(QtType):
     def __init__(self, data):
@@ -340,13 +368,13 @@ class QVariant(QtType):
     def encode(self):
         data = bytearray()
         if hasattr(self.data.__class__, 'QT_TYPE') and hasattr(self.data, 'encode'):
-            data.extend(Quint32(self.data.QT_TYPE).encode())    #QVariant type
-            data.extend(Qint8(0).encode())              #null flag
+            data.extend(Quint32(self.data.QT_TYPE).encode())    # QVariant type
+            data.extend(Qint8(0).encode())                      # null flag
             data.extend(self.data.encode())
         elif type(self.data) in _python_types:
             cls = _python_types[type(self.data)]
-            data.extend(Quint32(cls.QT_TYPE).encode())
-            data.extend(Qint8(0).encode())              #null flag
+            data.extend(Quint32(cls.QT_TYPE).encode())          # QVariant type
+            data.extend(Qint8(0).encode())                      # null flag
             data.extend(cls(self.data).encode())
         else:
             raise EncodeException('invalid data type {0}'.format(type(self.data).__name__))
@@ -356,11 +384,12 @@ class QVariant(QtType):
     @staticmethod
     def decode(data):
         type = Quint32.decode(data)
-        data.read(1)    #ignore null flag
+        data.read(1)    # ignore null flag
         if type in _qt_types:
             return _qt_types[type](data)
         else:
             raise DecodeException('invalid data type {0} at position {1}'.format(type, data.tell() - 5))
+
 
 @register_mapping(QVARIANTMAP)
 class QVariantMap(QtType):
@@ -377,6 +406,7 @@ class QVariantMap(QtType):
 
         return dict
 
+
 @register_mapping(QVARIANTLIST)
 class QVariantList(QtType):
     def __init__(self, data):
@@ -384,7 +414,7 @@ class QVariantList(QtType):
 
     def encode(self):
         data = bytearray()
-        data.extend(Quint32(len(self.data)).encode())   #QList length
+        data.extend(Quint32(len(self.data)).encode())   # QList length
         for value in self.data:
             if isinstance(value, QtType):
                 data.extend(value.encode())

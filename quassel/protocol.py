@@ -13,6 +13,7 @@ from qtdatastream import register_user_type, Quint8, Qint16, Qint32, Quint32, QB
 if not hasattr(zlib, 'Z_PARTIAL_FLUSH'):
     zlib.Z_PARTIAL_FLUSH = 0x1
 
+
 @register_user_type('BufferInfo')
 class BufferInfo(qtdatastream.QtType):
     def __init__(self, data):
@@ -21,12 +22,13 @@ class BufferInfo(qtdatastream.QtType):
     @staticmethod
     def decode(data):
         return {
-            'bufferId' : Qint32.decode(data),
-            'networkId' : Qint32.decode(data),
-            'type' : Qint16.decode(data),
-            'groupId' : Quint32.decode(data),
-            'name' : QByteArray.decode(data).decode('utf-8')
+            'bufferId': Qint32.decode(data),
+            'networkId': Qint32.decode(data),
+            'type': Qint16.decode(data),
+            'groupId': Quint32.decode(data),
+            'name': QByteArray.decode(data).decode('utf-8')
         }
+
 
 @register_user_type('Message')
 class Message(qtdatastream.QtType):
@@ -36,13 +38,13 @@ class Message(qtdatastream.QtType):
     @staticmethod
     def decode(data):
         return {
-            'msgId' : Qint32.decode(data),
-            'timeStamp' : Quint32.decode(data),
-            'type' : Quint32.decode(data),
+            'msgId': Qint32.decode(data),
+            'timeStamp': Quint32.decode(data),
+            'type': Quint32.decode(data),
             'flags': Quint8.decode(data),
-            'bufferInfo' : BufferInfo.decode(data),
-            'sender' : QByteArray.decode(data).decode('utf-8'),
-            'contents' : QByteArray.decode(data).decode('utf-8')
+            'bufferInfo': BufferInfo.decode(data),
+            'sender': QByteArray.decode(data).decode('utf-8'),
+            'contents': QByteArray.decode(data).decode('utf-8')
         }
 
 
@@ -65,7 +67,7 @@ class QuasselClientProtocol(asyncio.Protocol):
         register_user_type('UserId')(qtdatastream.QINT)
         register_user_type('AccountId')(qtdatastream.QINT)
         register_user_type('MsgId')(qtdatastream.QINT)
-        #QVariant?
+        # QVariant?
 
     def connection_made(self, transport):
         log = logging.getLogger(__name__)
@@ -105,7 +107,7 @@ class QuasselClientProtocol(asyncio.Protocol):
         log = logging.getLogger(__name__)
         buffer_end = self._buffer.tell()
 
-        if buffer_end < 4:         #can we read message size?
+        if buffer_end < 4:         # can we read message size?
             return
         self._buffer.seek(0)
         message_length = Quint32.decode(self._buffer)
@@ -121,7 +123,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             log.error(e)
 
         buffer_position = self._buffer.tell()
-        while buffer_end - buffer_position >= 4: #any trailing messages in the data?
+        while buffer_end - buffer_position >= 4:    # any trailing messages in the data?
             message_length = Quint32.decode(self._buffer)
 
             if message_length <= buffer_end - (buffer_position + 4):
@@ -168,12 +170,14 @@ class QuasselClientProtocol(asyncio.Protocol):
             context.options |= ssl.OP_NO_SSLv2
             context.options |= ssl.OP_NO_SSLv3
             self._sslPipe = asyncio.sslproto._SSLPipe(context, False)
+
             def callback(err):
-                if err == None:
+                if err is None:
                     print('we have handshake')
                     self.register_client()
                 else:
                     print('handshake failed')
+
             self.transport.write(b''.join(self._sslPipe.do_handshake(callback)))
         else:
             self.register_client()
@@ -218,16 +222,16 @@ class QuasselClientProtocol(asyncio.Protocol):
 
     def send_message(self, message):
         data = QVariantList([QVariant(x) for x in message]).encode()
-        self.send_data(Quint32(len(data)).encode())     #Message length
-        self.send_data(data, True)                      #Message data
+        self.send_data(Quint32(len(data)).encode())     # Message length
+        self.send_data(data, True)                      # Message data
 
     def send_legacy_message(self, message):
         data = self.data_streamify(message)
-        self.send_data(Quint32(len(data)).encode()) #Message length
-        self.send_data(data, True)                  #Message data
+        self.send_data(Quint32(len(data)).encode())     # Message length
+        self.send_data(data, True)                      # Message data
 
     def register_client(self):
-        message = { 'MsgType' : 'ClientInit', 'ClientVersion': 'v0.11.0 (unknown revision)', 'ClientDate': 'Jan 11 2015 15:41:00' }
+        message = {'MsgType': 'ClientInit', 'ClientVersion': 'v0.11.0 (unknown revision)', 'ClientDate': 'Jan 11 2015 15:41:00'}
         self.send_legacy_message(message)
 
     def handle_message(self, raw_message_stream):
@@ -259,7 +263,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             log.error('Core is not configured!')
         else:
             log.info('Sending login data')
-            message = { 'MsgType' : 'ClientLogin', 'User' : self.user, 'Password' : self.password }
+            message = {'MsgType': 'ClientLogin', 'User': self.user, 'Password': self.password}
             self.send_legacy_message(message)
 
     def handle_session_init(self, data):
@@ -267,7 +271,7 @@ class QuasselClientProtocol(asyncio.Protocol):
         self._handshake = True
         self._identities = {}
         for identity in data['Identities']:
-            self._identities[identity['identityId']] = { 'nicks' : identity['nicks'] }
+            self._identities[identity['identityId']] = {'nicks': identity['nicks']}
         log.debug('Identities: {0}'.format(repr(self._identities)))
 
         self._networks = {}
@@ -278,9 +282,8 @@ class QuasselClientProtocol(asyncio.Protocol):
 
         self._buffers = {}
         for buffer in data['BufferInfos']:
-            self._buffers[buffer['bufferId']] = { 'name' : buffer['name'], 'network' : buffer['networkId'], 'type' : buffer['type'] }
+            self._buffers[buffer['bufferId']] = {'name': buffer['name'], 'network': buffer['networkId'], 'type': buffer['type']}
         log.debug('Buffers: {0}'.format(repr(self._buffers)))
-
 
     def handle_regular_message(self, message):
         log = logging.getLogger(__name__)
@@ -300,12 +303,12 @@ class QuasselClientProtocol(asyncio.Protocol):
 
             class_name = message[1]
             object_name = message[2]
-            if object_name != None:
+            if object_name is not None:
                 object_name = object_name.decode('utf-8')
             function_name = message[3]
             params = message[4:]
 
-            #call object!
+            # call object!
 
         elif message_type == quassel.RPC:
             log.debug('rpc call')
@@ -313,7 +316,7 @@ class QuasselClientProtocol(asyncio.Protocol):
                 log.error('empty rpc call')
                 return
 
-            #handle rpc call
+            # handle rpc call
 
         elif message_type == quassel.INIT_REQUEST:
             log.debug('init request')
@@ -321,7 +324,7 @@ class QuasselClientProtocol(asyncio.Protocol):
                 log.error('invalid init request')
                 return
 
-            #handle init request
+            # handle init request
 
         elif message_type == quassel.INIT_DATA:
             log.debug('init data')
@@ -329,7 +332,7 @@ class QuasselClientProtocol(asyncio.Protocol):
                 log.error('invalid init data')
                 return
 
-            #handle init data
+            # handle init data
 
         elif message_type == quassel.HEART_BEAT:
             log.debug('heart beat')
@@ -345,7 +348,7 @@ class QuasselClientProtocol(asyncio.Protocol):
             if len(message) != 2:
                 log.error('invalid heart beat reply')
 
-            #handle heart beat reply!
+            # handle heart beat reply!
 
         else:
             log.error('invalid message type {0}'.format(message_type))
